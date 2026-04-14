@@ -1,5 +1,7 @@
+import argparse
+import json
 import os
-import time
+import shutil
 import urllib.request
 from pathlib import Path
 from zipfile import ZipFile
@@ -9,38 +11,65 @@ from tqdm import tqdm
 
 import robocasa
 
-DOWNLOAD_ASSET_REGISTRY = dict(
-    textures=dict(
+# path to the box_links.json shipped with robocasa
+BOX_LINKS_PATH = os.path.join(
+    robocasa.__path__[0], "models", "assets", "box_links", "box_links_assets.json"
+)
+with open(BOX_LINKS_PATH, "r") as f:
+    BOX_LINKS = json.load(f)
+
+
+def _get_direct_download_url(shared_url):
+    """
+    Convert a Box shared link into a direct-download URL.
+    e.g. https://utexas.box.com/s/abc123  →
+         https://utexas.box.com/shared/static/abc123.zip
+    """
+    shared_id = shared_url.rstrip("/").split("/")[-1]
+    base = shared_url.split("/s/")[0]
+    return f"{base}/shared/static/{shared_id}.zip"
+
+
+DOWNLOAD_ASSET_REGISTRY = {
+    ### textures ###
+    "tex": dict(
         message="Downloading environment textures",
-        url="https://utexas.box.com/shared/static/otdsyfjontk17jdp24bkhy2hgalofbh4.zip",
+        url=_get_direct_download_url(BOX_LINKS["textures"]),
         folder=os.path.join(robocasa.__path__[0], "models/assets/textures"),
         check_folder_exists=False,
     ),
-    fixtures=dict(
-        message="Downloading fixtures",
-        url="https://utexas.box.com/shared/static/pobhbsjyacahg2mx8x4rm5fkz3wlmyzp.zip",
-        folder=os.path.join(robocasa.__path__[0], "models/assets/fixtures"),
-        check_folder_exists=False,
-    ),
-    objaverse=dict(
-        message="Downloading objaverse objects",
-        url="https://utexas.box.com/shared/static/ejt1kc2v5vhae1rl4k5697i4xvpbjcox.zip",
-        folder=os.path.join(robocasa.__path__[0], "models/assets/objects/objaverse"),
-        check_folder_exists=False,
-    ),
-    aigen_objs=dict(
-        message="Downloading AI-generated objects",
-        url="https://utexas.box.com/shared/static/os3hrui06lasnuvwqpmwn0wcrduh6jg3.zip",
-        folder=os.path.join(robocasa.__path__[0], "models/assets/objects/aigen_objs"),
-        check_folder_exists=False,
-    ),
-    generative_textures=dict(
+    "tex_generative": dict(
         message="Downloading AI-generated environment textures",
-        url="https://utexas.box.com/shared/static/gf9nkadvfrowkb9lmkcx58jwt4d6c1g3.zip",
+        url=_get_direct_download_url(BOX_LINKS["generative_textures"]),
         folder=os.path.join(robocasa.__path__[0], "models/assets/generative_textures"),
         check_folder_exists=False,
     ),
-)
+    "fixtures_lw": dict(
+        message="Downloading lightwheel fixtures",
+        url=_get_direct_download_url(BOX_LINKS["fixtures_lightwheel"]),
+        folder=os.path.join(robocasa.__path__[0], "models/assets/fixtures"),
+        check_folder_exists=False,
+    ),
+    ### objects ###
+    "objs_objaverse": dict(
+        message="Downloading objaverse objects",
+        url=_get_direct_download_url(BOX_LINKS["objaverse"]),
+        folder=os.path.join(robocasa.__path__[0], "models/assets/objects/objaverse"),
+        check_folder_exists=False,
+    ),
+    "objs_aigen": dict(
+        message="Downloading AI-generated objects",
+        url=_get_direct_download_url(BOX_LINKS["aigen_objs"]),
+        folder=os.path.join(robocasa.__path__[0], "models/assets/objects/aigen_objs"),
+        check_folder_exists=False,
+    ),
+    "objs_lw": dict(
+        message="Downloading lightwheel objects",
+        url=_get_direct_download_url(BOX_LINKS["objects_lightwheel"]),
+        folder=os.path.join(robocasa.__path__[0], "models/assets/objects/lightwheel"),
+        check_folder_exists=False,
+    ),
+}
 
 
 class DownloadProgressBar(tqdm):
@@ -86,11 +115,6 @@ def download_url(url, download_dir, fname=None, check_overwrite=True):
         check_overwrite (bool): if True, will sanity check the download fpath to make sure a file of that name
             doesn't already exist there
     """
-
-    # check if url is reachable. We need the sleep to make sure server doesn't reject subsequent requests
-    # assert url_is_alive(url), "@download_url got unreachable url: {}".format(url)
-    # time.sleep(0.5)
-
     if fname is None:
         # infer filename from url link
         fname = url.split("/")[-1]
@@ -118,6 +142,7 @@ def download_and_extract_zip(
     folder,
     check_folder_exists=True,
     prompt_before_download=False,
+    delete_old_folder=False,
     message="Downloading...",
 ):
     assert url.endswith(".zip")
@@ -125,13 +150,17 @@ def download_and_extract_zip(
     download_dir = os.path.abspath(os.path.join(folder, os.pardir))
     Path(download_dir).mkdir(parents=True, exist_ok=True)
 
+    if delete_old_folder and os.path.exists(folder):
+        print(colored(f"Deleting existing folder: {folder}", "yellow"))
+        shutil.rmtree(folder)
+
     download_path = os.path.join(
         download_dir, "{}.zip".format(os.path.basename(folder))
     )
 
     print(colored(message, "yellow"))
 
-    # extract files
+    # check if folder already exists
     if check_folder_exists and os.path.exists(folder):
         ans = input("{} already exists! \noverwrite? (y/n) ".format(folder))
 
@@ -163,7 +192,7 @@ def download_and_extract_zip(
             )
             download_success = True
             break
-        except:
+        except Exception:
             print("Error downloading after try #{}".format(i + 1))
 
     if download_success is False:
@@ -172,8 +201,6 @@ def download_and_extract_zip(
 
     print(colored("Extracting...", "yellow"))
     with ZipFile(download_path, "r") as zip_ref:
-        # Extracting all the members of the zip
-        # into a specific location.
         zip_ref.extractall(path=download_dir)
 
     # delete zip file
@@ -182,8 +209,8 @@ def download_and_extract_zip(
     print(colored("Done.\n", "yellow"))
 
 
-def download_kitchen_assets():
-    ans = input("The script will download ~5 Gb of data. Proceed? (y/n) ")
+def download_kitchen_assets(types):
+    ans = input("The script will download ~10 Gb of data. Proceed? (y/n) ")
     if ans == "y":
         print("Proceeding...")
     else:
@@ -191,10 +218,28 @@ def download_kitchen_assets():
         return
 
     for ds_name, config in DOWNLOAD_ASSET_REGISTRY.items():
-        if ds_name == "aigen_objs":
-            continue  # skip for now, too large to download initially
+        if types is None:
+            pass
+        elif "all" in types:
+            # download everything
+            pass
+        else:
+            if ds_name not in types:
+                continue
         download_and_extract_zip(**config)
 
 
 if __name__ == "__main__":
-    download_kitchen_assets()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--type",
+        type=str,
+        nargs="+",
+        choices=list(DOWNLOAD_ASSET_REGISTRY.keys()) + ["all"],
+        help='asset registry types to download (specify "all" to download all types)',
+    )
+
+    args = parser.parse_args()
+    types = args.type
+
+    download_kitchen_assets(types)

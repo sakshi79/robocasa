@@ -1,6 +1,7 @@
 import argparse
 import json
-import time
+import sys
+import termios
 from collections import OrderedDict
 
 import numpy as np
@@ -9,8 +10,13 @@ from robosuite.controllers import load_composite_controller_config
 from robosuite.wrappers import VisualizationWrapper
 from termcolor import colored
 
+import robocasa.macros as macros
 from robocasa.models.scenes.scene_registry import LayoutType, StyleType
 from robocasa.scripts.collect_demos import collect_human_trajectory
+from robocasa.wrappers.enclosing_wall_render_wrapper import (
+    EnclosingWallRenderWrapper,
+    install_enclosing_wall_hotkeys,
+)
 
 
 def choose_option(
@@ -35,21 +41,27 @@ def choose_option(
 
     for i, (k, v) in enumerate(options.items()):
         if show_keys:
-            print("[{}] {}: {}".format(i, k, v))
+            print("[{}] {}: {}".format(i + 1, k, v))
         else:
-            print("[{}] {}".format(i, v))
+            print("[{}] {}".format(i + 1, v))
     print()
     try:
         s = input(
-            "Choose an option 0 to {}, or any other key for default ({}): ".format(
-                len(options) - 1,
+            "Choose an option 1 to {}, or 0/other for default ({}): ".format(
+                len(options),
                 default_message,
             )
         )
-        # parse input into a number within range
-        k = min(max(int(s), 0), len(options) - 1)
-        choice = list(options.keys())[k]
-    except:
+        num = int(s)
+        # 0 means use default (e.g. random layouts/styles)
+        if num == 0:
+            choice = default
+        else:
+            # parse 1-based input into 0-based index
+            k = min(max(num - 1, 0), len(options) - 1)
+            choice = list(options.keys())[k]
+    except Exception as e:  # noqa: F841
+        print(f"Invalid input: {e}")
         if default is None:
             choice = options[0]
         else:
@@ -63,10 +75,24 @@ def choose_option(
 if __name__ == "__main__":
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="PnPCounterToCab", help="task")
-    parser.add_argument("--layout", type=int, help="kitchen layout (choose number 0-9)")
-    parser.add_argument("--style", type=int, help="kitchen style (choose number 0-11)")
+    parser.add_argument("--task", type=str, default="Kitchen", help="task")
+    parser.add_argument(
+        "--layout", type=int, help="kitchen layout (choose number 1-60)"
+    )
+    parser.add_argument("--style", type=int, help="kitchen style (choose number 1-60)")
     parser.add_argument("--robot", type=str, help="robot", default="PandaOmron")
+    parser.add_argument(
+        "--show-walls",
+        action="store_true",
+        help="render enclosing walls (default is to hide walls with enclosing_wall: true)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="keyboard",
+        choices=["keyboard", "spacemouse"],
+        help="Teleop device (default: keyboard)",
+    )
     args = parser.parse_args()
 
     raw_layouts = dict(
@@ -109,14 +135,30 @@ if __name__ == "__main__":
         control_freq=20,
         renderer=args.renderer,
     )
+    env = EnclosingWallRenderWrapper(env, alpha=0.1, enabled=not args.show_walls)
+    install_enclosing_wall_hotkeys(env)
 
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
     # initialize device
-    from robosuite.devices import Keyboard
+    device = args.device
+    if device == "keyboard":
+        from robosuite.devices import Keyboard
 
-    device = Keyboard(env=env, pos_sensitivity=4.0, rot_sensitivity=4.0)
+        device = Keyboard(env=env, pos_sensitivity=4.0, rot_sensitivity=4.0)
+    elif device == "spacemouse":
+        from robosuite.devices import SpaceMouse
+
+        device = SpaceMouse(
+            env=env,
+            pos_sensitivity=4.0,
+            rot_sensitivity=4.0,
+            vendor_id=macros.SPACEMOUSE_VENDOR_ID,
+            product_id=macros.SPACEMOUSE_PRODUCT_ID,
+        )
+    else:
+        raise ValueError
 
     # collect demonstrations
     while True:
@@ -133,11 +175,11 @@ if __name__ == "__main__":
             )
         else:
             style = args.style
-
+        print("chose layout:", layout, "style:", style)
         if layout == -1:
-            layout = np.random.choice(range(10))
+            layout = int(np.random.choice(list(layouts.keys())))
         if style == -1:
-            style = np.random.choice(range(11))
+            style = int(np.random.choice(list(styles.keys())))
 
         env.layout_and_style_ids = [[layout, style]]
         print(
@@ -164,6 +206,10 @@ if __name__ == "__main__":
             max_fr=30,
             print_info=False,
         )
+
+        # Flush stdin to clear any buffered keypresses otherwise when getting
+        # the next layout/style choice, it will read a 'q' from before
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
         print()
         print()

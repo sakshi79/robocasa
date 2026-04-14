@@ -10,6 +10,10 @@ from termcolor import colored
 
 import robocasa.macros as macros
 from robocasa.scripts.collect_demos import collect_human_trajectory
+from robocasa.wrappers.enclosing_wall_render_wrapper import (
+    EnclosingWallRenderWrapper,
+    install_enclosing_wall_hotkeys,
+)
 
 
 def choose_option(
@@ -62,21 +66,26 @@ def choose_option(
 if __name__ == "__main__":
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, help="task (choose among 100+ tasks)")
-    parser.add_argument("--layout", type=int, help="kitchen layout (choose number 0-9)")
-    parser.add_argument("--style", type=int, help="kitchen style (choose number 0-11)")
+    parser.add_argument("--task", type=str, help="task (choose among 365 tasks)")
     parser.add_argument(
-        "--device", type=str, default="keyboard", choices=["keyboard", "spacemouse"]
+        "--layout", type=int, help="kitchen layout (choose number 1-60)"
     )
-    parser.add_argument("--robot", type=str, help="robot")
+    parser.add_argument("--style", type=int, help="kitchen style (choose number 1-60)")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="keyboard",
+        choices=["keyboard", "spacemouse"],
+        help="Teleop device (default: keyboard)",
+    )
     args = parser.parse_args()
 
     tasks = OrderedDict(
         [
-            ("PnPCounterToCab", "pick and place from counter to cabinet"),
-            ("PnPCounterToSink", "pick and place from counter to sink"),
-            ("PnPMicrowaveToCounter", "pick and place from microwave to counter"),
-            ("PnPStoveToCounter", "pick and place from stove to counter"),
+            ("PickPlaceCounterToCabinet", "pick and place from counter to cabinet"),
+            ("PickPlaceCounterToSink", "pick and place from counter to sink"),
+            ("PickPlaceMicrowaveToCounter", "pick and place from microwave to counter"),
+            ("PickPlaceStoveToCounter", "pick and place from stove to counter"),
             ("OpenSingleDoor", "open cabinet or microwave door"),
             ("CloseDrawer", "close drawer"),
             ("TurnOnMicrowave", "turn on microwave"),
@@ -92,21 +101,14 @@ if __name__ == "__main__":
 
     if args.task is None:
         args.task = choose_option(
-            tasks, "task", default="PnPCounterToCab", show_keys=True
+            tasks, "task", default="PickPlaceCounterToCabinet", show_keys=True
         )
-    robots = OrderedDict([(0, "PandaOmron"), (1, "GR1FloatingBody")])
-
-    if args.robot is None:
-        robot_choice = choose_option(
-            robots, "robot", default=0, default_message="PandaOmron"
-        )
-        args.robot = robots[robot_choice]
 
     # Create argument configuration
     config = {
         "env_name": args.task,
-        "robots": args.robot,
-        "controller_configs": load_composite_controller_config(robot=args.robot),
+        "robots": "PandaOmron",
+        "controller_configs": load_composite_controller_config(robot="PandaOmron"),
         "layout_ids": args.layout,
         "style_ids": args.style,
         "translucent_robot": True,
@@ -128,16 +130,19 @@ if __name__ == "__main__":
 
     # Wrap this with visualization wrapper
     env = VisualizationWrapper(env)
+    env = EnclosingWallRenderWrapper(env, alpha=0.1, enabled=False)
+    install_enclosing_wall_hotkeys(env)
 
     # Grab reference to controller config and convert it to json-encoded string
     env_info = json.dumps(config)
 
     # initialize device
-    if args.device == "keyboard":
+    device = args.device
+    if device == "keyboard":
         from robosuite.devices import Keyboard
 
         device = Keyboard(env=env, pos_sensitivity=4.0, rot_sensitivity=4.0)
-    elif args.device == "spacemouse":
+    elif device == "spacemouse":
         from robosuite.devices import SpaceMouse
 
         device = SpaceMouse(

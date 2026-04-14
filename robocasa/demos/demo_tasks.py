@@ -9,10 +9,16 @@ from termcolor import colored
 
 import robocasa
 from robocasa.scripts.download_datasets import download_datasets
-from robocasa.scripts.download_kitchen_assets import download_and_extract_zip
-from robocasa.scripts.playback_dataset import playback_dataset
-from robocasa.utils.dataset_registry import get_ds_path
-import os
+from robocasa.scripts.dataset_scripts.playback_dataset import playback_dataset
+from robocasa.utils.dataset_registry_utils import get_ds_path
+
+
+def get_ds_path_any_split(task, source="human"):
+    """Return dataset path trying pretrain first, then target (for tasks that only have target human demos, e.g. composite-unseen)."""
+    path = get_ds_path(task, source=source, split="pretrain")
+    if path is not None:
+        return path
+    return get_ds_path(task, source=source, split="target")
 
 
 def choose_option(
@@ -81,12 +87,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    tasks = OrderedDict(
+    all_tasks = OrderedDict(
         [
-            ("PnPCounterToCab", "pick and place from counter to cabinet"),
-            ("PnPCounterToSink", "pick and place from counter to sink"),
-            ("PnPMicrowaveToCounter", "pick and place from microwave to counter"),
-            ("PnPStoveToCounter", "pick and place from stove to counter"),
+            ("PickPlaceCounterToCabinet", "pick and place from counter to cabinet"),
+            ("PickPlaceCounterToSink", "pick and place from counter to sink"),
+            ("PickPlaceMicrowaveToCounter", "pick and place from microwave to counter"),
+            ("PickPlaceStoveToCounter", "pick and place from stove to counter"),
             ("OpenSingleDoor", "open cabinet or microwave door"),
             ("CloseDrawer", "close drawer"),
             ("TurnOnMicrowave", "turn on microwave"),
@@ -97,57 +103,97 @@ if __name__ == "__main__":
             ("RestockPantry", "restock cans in pantry"),
             ("PreSoakPan", "prepare pan for washing"),
             ("PrepareCoffee", "make coffee"),
+            (
+                "HotDogSetup",
+                "gather ingredients for a hot dog and place them on the dining table [Navigation]",
+            ),
+            (
+                "DeliverStraw",
+                "place the straw in the glass cup on the dining counter [Navigation]",
+            ),
+            (
+                "GatherTableware",
+                "gather tableware from around the kitchen [Navigation]",
+            ),
         ]
     )
+    tasks = OrderedDict(
+        (k, v)
+        for k, v in all_tasks.items()
+        if get_ds_path_any_split(k, source="human") is not None
+    )
+    if not tasks:
+        raise RuntimeError(
+            "No tasks with registered human demo paths. Check dataset registry and DATASET_BASE_PATH."
+        )
 
     video_num = -1
     while True:
         if args.task is None:
             task = choose_option(
-                tasks, "task", default="PnPCounterToCab", show_keys=True
+                tasks, "task", default=list(tasks.keys())[0], show_keys=True
             )
         else:
             task = args.task
         video_num += 1
 
-        dataset = get_ds_path(task, ds_type="human_raw")
+        dataset = get_ds_path_any_split(task, source="human")
+        if dataset is None:
+            raise ValueError(f"No registered dataset path for task={task} source=human")
 
         if os.path.exists(dataset) is False:
-            # download dataset files
+            # download dataset files (try both splits so target-only tasks e.g. GatherTableware work)
             print(
                 colored(
                     "Unable to find dataset locally. Downloading...", color="yellow"
                 )
             )
-            download_datasets(tasks=[task], ds_types=["human_raw"])
+            download_datasets(
+                tasks=[task], split=["pretrain", "target"], source=["human"]
+            )
 
-        parser = argparse.Namespace()
-        parser.dataset = dataset
+        dataset = dataset
 
         if args.render_offscreen:
-            parser.render = True
+            render = True
             if not os.path.exists(args.video_path):
                 os.makedirs(args.video_path)
-            parser.video_path = os.path.join(args.video_path, f"video_{video_num}.mp4")
+            video_path = os.path.join(args.video_path, f"video_{video_num}.mp4")
         else:
-            parser.render = False
-            parser.video_path = False
+            render = False
+            video_path = False
 
-        parser.render = not args.render_offscreen
-        parser.use_actions = False
-        parser.use_abs_actions = False
-        parser.render_image_names = ["robot0_agentview_center"]
-        parser.use_obs = False
-        parser.n = 1 if args.task is None else None
-        parser.filter_key = None
-        parser.video_skip = 5
-        parser.first = False
-        parser.verbose = True
-        parser.extend_states = True
-        parser.camera_height = 512
-        parser.camera_width = 768
+        render = not args.render_offscreen
+        use_actions = False
+        use_abs_actions = False
+        render_image_names = ["robot0_agentview_center"]
+        use_obs = False
+        n = 1 if args.task is None else None
+        filter_key = None
+        video_skip = 5
+        first = False
+        verbose = True
+        extend_states = True
+        camera_height = 512
+        camera_width = 768
 
-        playback_dataset(parser)
+        playback_dataset(
+            dataset=dataset,
+            use_actions=use_actions,
+            use_abs_actions=use_abs_actions,
+            use_obs=use_obs,
+            filter_key=filter_key,
+            n=n,
+            render=render,
+            render_image_names=render_image_names,
+            camera_height=camera_height,
+            camera_width=camera_width,
+            video_path=video_path,
+            video_skip=video_skip,
+            extend_states=extend_states,
+            first=first,
+            verbose=verbose,
+        )
         if args.task is not None:
             break
         print()
