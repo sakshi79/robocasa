@@ -6,12 +6,12 @@
 - **Diverse tasks**: 365 tasks created with the guidance of large language models
 - **Diverse assets**: including 2,500+ kitchen scenes and 3,200+ 3D objects
 - **High-quality demonstrations**: including 600+ hours of human demonstrations in addition to 1,600+ hours of robot datasets created with automated trajectory tools
-- **Benchmarking support**: popular policy learning methods including Diffusion Policy, pi, and GR00T
+- **Benchmarking support**: popular policy learning methods including Diffusion Policy, pi, and GR00T, plus user-submitted models on the [leaderboard](https://robocasa.ai/leaderboard.html)
 
 
 This guide contains information about installation and setup. Please refer to the following resources for additional information:
 
-[**[Home page]**](https://robocasa.ai) &ensp; [**[Documentation]**](https://robocasa.ai/docs/introduction/overview.html) &ensp; [**[RoboCasa365 Paper]**](https://robocasa.ai/assets/robocasa365_iclr26.pdf) &ensp; [**[Original RoboCasa Paper]**](https://robocasa.ai/assets/robocasa_rss24.pdf)
+[**[Home page]**](https://robocasa.ai) &ensp; [**[Documentation]**](https://robocasa.ai/docs/introduction/overview.html) &ensp; [**[RoboCasa365 Paper]**](https://robocasa.ai/assets/robocasa365_iclr26.pdf) &ensp; [**[Original RoboCasa Paper]**](https://robocasa.ai/assets/robocasa_rss24.pdf) &ensp; [**[Leaderboard]**](https://robocasa.ai/leaderboard.html)
 
 -------
 ## Installation
@@ -113,7 +113,7 @@ Please refer to the [documentation page](https://robocasa.ai/docs/introduction/o
 Code: [MIT License](https://opensource.org/license/mit)
 
 Assets and Datasets: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.en)
- 
+
 -------
 ## Citation
 
